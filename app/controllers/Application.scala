@@ -28,15 +28,22 @@ object Application extends Controller with MongoController {
   }
 
 
-  def saveToGridFs( name: String, url : String ): Future[Option[BSONValue]] = {
-    val input = catching(classOf[java.net.MalformedURLException], classOf[java.io.FileNotFoundException]) opt(
-              Enumerator.fromStream( new java.net.URL(url).openStream() ) )
+  def saveToGridFs( origins: Seq[String], name : String ): Future[Option[BSONValue]] = {
+    val input = origins.foldLeft[Option[(String, Enumerator[Array[Byte]])]](None){
+      case( None, origin ) => {
+        ( catching(classOf[java.net.MalformedURLException], classOf[java.io.FileNotFoundException])
+            opt( Enumerator.fromStream( new java.net.URL(origin + name).openStream() ) )
+        ).map( i => (origin, i) )
+      }
+      case( v, _ ) => v
+    }
 
-    input.map{ i =>
+    input.map{ case (origin, i ) =>
       val putResult = i.run( gridFS.save(name, None, Option("application/octet-stream")) )
-      putResult.flatMap{ p => p.map{ pr => Option(pr.id) } }
+      putResult.flatMap{ p => p.map{ pr =>
+        Option(pr.id)
+      }}
     }.getOrElse(Future(None))
-
   }
 
 }
