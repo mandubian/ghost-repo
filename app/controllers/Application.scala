@@ -41,6 +41,7 @@ object Application extends Controller with MongoController {
     input.map{ case (origin, i ) =>
       val putResult = i.run( gridFS.save(name, None, Option("application/octet-stream")) )
       putResult.flatMap{ p => p.map{ pr =>
+        gridFS.files.update(BSONDocument("_id" -> pr.id), BSONDocument("$set" -> BSONDocument("origin" -> BSONString(origin) ) ) )
         Option(pr.id)
       }}
     }.getOrElse(Future(None))
