@@ -5,9 +5,5 @@
 # Home page
 GET     /                           controllers.Application.index
 
-HEAD    /repo/*path                    controllers.Application.repo(path)  
-GET    /repo/*path                    controllers.Application.repo(path)  
-POST    /repo/*path                    controllers.Application.repo(path)  
-
 # Map static resources from the /public folder to the /assets URL path
 GET     /assets/*file               controllers.Assets.at(path="/public", file)

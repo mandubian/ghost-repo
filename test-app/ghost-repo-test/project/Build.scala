@@ -4,15 +4,16 @@ import PlayProject._
 
 object ApplicationBuild extends Build {
 
-    val appName         = "ghost-repo"
+    val appName         = "ghost-repo-test"
     val appVersion      = "1.0-SNAPSHOT"
 
     val appDependencies = Seq(
-      "play.modules.reactivemongo" %% "play2-reactivemongo" % "0.1-SNAPSHOT"
+      "ghost-group" %% "ghost-artifact" % "1.0-SNAPSHOT"
     )
 
     val main = PlayProject(appName, appVersion, appDependencies, mainLang = SCALA).settings(
-      resolvers += "sgodbillon" at "https://bitbucket.org/sgodbillon/repository/raw/master/snapshots/"
+      resolvers += "ghost-repo" at "http://localhost:9999/repo"
     )
+
 
 }
