@@ -32,7 +32,7 @@ object Application extends Controller with MongoController {
     val input = origins.foldLeft[Option[(String, Enumerator[Array[Byte]])]](None){
       case( None, origin ) => {
         ( catching(classOf[java.net.MalformedURLException], classOf[java.io.FileNotFoundException])
-            opt( Enumerator.fromStream( new java.net.URL(origin + name).openStream() ) )
+            opt( Enumerator.fromStream( new java.net.URL(origin + "/" + name).openStream() ) )
         ).map( i => (origin, i) )
       }
       case( v, _ ) => v
