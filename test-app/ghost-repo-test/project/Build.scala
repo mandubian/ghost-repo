@@ -8,11 +8,16 @@ object ApplicationBuild extends Build {
     val appVersion      = "1.0-SNAPSHOT"
 
     val appDependencies = Seq(
-      "ghost-group" %% "ghost-artifact" % "1.0-SNAPSHOT"
+      //"xerces" % "xerces" % "2.4.0"
+      "org.xhtmlrenderer" % "core-renderer"  % "R8"
     )
 
     val main = PlayProject(appName, appVersion, appDependencies, mainLang = SCALA).settings(
-      resolvers += "ghost-repo" at "http://localhost:9999/repo"
+      externalResolvers <<= resolvers map { rs =>
+        Resolver.withDefaultResolvers(rs, mavenCentral = false)
+      },
+
+      resolvers := Seq("ghost-repo" at "http://localhost:9999/repo")
     )
 
 
