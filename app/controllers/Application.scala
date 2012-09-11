@@ -15,6 +15,8 @@ import reactivemongo.api.gridfs._
 import reactivemongo.bson._
 import reactivemongo.bson.handlers.DefaultBSONHandlers._
 
+import models._
+
 object Application extends Controller with MongoController {
   val db = ReactiveMongoPlugin.db
   val gridFS = new GridFS(db, "dependencies")
@@ -28,7 +30,7 @@ object Application extends Controller with MongoController {
       Logger.debug("method:%s path: %s".format(request.method, path))
       val fileCursor = gridFS.find(BSONDocument("filename" -> new BSONString("/" + path)))
 
-      fileCursor.headOption.flatMap( fileEntry => 
+      fileCursor.headOption.flatMap( fileEntry =>
         if(!fileEntry.isDefined){
           val mavenCentralUrl = "http://repo1.maven.org/maven2"
           if(path(path.length - 1) == '/'){
@@ -55,7 +57,7 @@ object Application extends Controller with MongoController {
           }
         } else {
           Future(buildRepoFile(fileEntry.get))
-        } 
+        }
       )
     }
   }
@@ -79,7 +81,7 @@ object Application extends Controller with MongoController {
   def buildRepoFile(fileEntry: ReadFileEntry)(implicit request: RequestHeader): Result = {
     val realName = fileEntry.filename.substring(fileEntry.filename.lastIndexOf("/")+1)
     Logger.debug("realName:%s".format(realName))
-    
+
     request.method match {
     case "GET" =>
       SimpleResult(
@@ -114,7 +116,7 @@ object Application extends Controller with MongoController {
         Logger.debug("url:%s".format(url))
 
         ( catching(classOf[java.net.MalformedURLException], classOf[java.io.FileNotFoundException])
-            opt{ 
+            opt{
               val conn = new java.net.URL(url).openConnection()
               ( conn.getContentType(), Enumerator.fromStream( conn.getInputStream() ) )
             }
@@ -125,12 +127,14 @@ object Application extends Controller with MongoController {
 
     input.map{ case (origin, mimeType, enumerator ) =>
       Logger.debug("file found in repo:%s".format(origin))
-      val putResult = enumerator.run( gridFS.save(name, None, Option(mimeType/*"application/octet-stream"*/)) )
+      val putResult = enumerator.run( gridFS.save(name, None, Option(mimeType)) )
       putResult.flatMap{ p => p.map{ pr =>
-        gridFS.files.update(BSONDocument("_id" -> pr.id), BSONDocument("$set" -> BSONDocument("origin" -> BSONString(origin) ) ) )
+        FileInfo(name).map{ fi =>
+          val newDoc = FileInfo.FileInfoBSONWriter.toBSON(fi) += "origin" -> BSONString(origin)
+          gridFS.files.update(BSONDocument("_id" -> pr.id), BSONDocument("$set" -> newDoc ) )
+        }
         Option(pr.id)
       }}
     }.getOrElse(Future(None))
   }
-
 }
