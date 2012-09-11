@@ -33,8 +33,18 @@ object Application extends Controller with MongoController {
           val mavenCentralUrl = "http://repo1.maven.org/maven2"
           if(path(path.length - 1) == '/'){
             Logger.debug("%s is a dir, just verifying it exists".format(mavenCentralUrl + "/" + path))
+
+            saveToGridFs( Seq(mavenCentralUrl), "/" + path ).flatMap { res =>
+              res.map { r =>
+                Logger.debug("Downloaded repo:%s, Path: %s".format(mavenCentralUrl, path))
+                serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
+              }.getOrElse(Future(NotFound))
+            }.recover{
+              case e: java.lang.Exception => Logger.debug("error:%s".format(e.getMessage)); NotFound
+            }
+
             //Future(Redirect(mavenCentralUrl + "/" + path))
-            WS.url(mavenCentralUrl + "/" + path).get().map { response =>
+            /*WS.url(mavenCentralUrl + "/" + path).get().map { response =>
               /*Ok.stream(Enumerator(response.body) >>> Enumerator.eof).as(HTML).withHeaders(
                 CONTENT_ENCODING -> "",
                 PRAGMA -> "no-cache",
@@ -54,7 +64,7 @@ object Application extends Controller with MongoController {
             }.recover{
               case e: java.net.MalformedURLException => Logger.debug("error:%s".format(e.getMessage)); NotFound
               case e: java.io.FileNotFoundException => Logger.debug("error:%s".format(e.getMessage)); NotFound
-            }
+            }*/
             /*catching(
               classOf[java.net.MalformedURLException], 
               classOf[java.io.FileNotFoundException]
