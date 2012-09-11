@@ -42,39 +42,6 @@ object Application extends Controller with MongoController {
             }.recover{
               case e: java.lang.Exception => Logger.debug("error:%s".format(e.getMessage)); NotFound
             }
-
-            //Future(Redirect(mavenCentralUrl + "/" + path))
-            /*WS.url(mavenCentralUrl + "/" + path).get().map { response =>
-              /*Ok.stream(Enumerator(response.body) >>> Enumerator.eof).as(HTML).withHeaders(
-                CONTENT_ENCODING -> "",
-                PRAGMA -> "no-cache",
-                CACHE_CONTROL -> "no-cache, no-store",
-                EXPIRES -> "Thu, 01 Jan 1970 00:00:00 GMT"
-              )*/
-                /*header = ResponseHeader(200, Map(
-                  CONTENT_TYPE -> "text/html; charset=utf-8"
-                )),
-                chunks = 
-              )*/
-              Ok(response.body).as(HTML).withHeaders(
-                CONTENT_ENCODING -> "",
-                PRAGMA -> "no-cache",
-                CACHE_CONTROL -> "no-cache, no-store"
-              )
-            }.recover{
-              case e: java.net.MalformedURLException => Logger.debug("error:%s".format(e.getMessage)); NotFound
-              case e: java.io.FileNotFoundException => Logger.debug("error:%s".format(e.getMessage)); NotFound
-            }*/
-            /*catching(
-              classOf[java.net.MalformedURLException], 
-              classOf[java.io.FileNotFoundException]
-            ).opt( 
-              new java.net.URL(mavenCentralUrl + "/" + path) 
-            ).map{ x => 
-              Future(
-                Ok(content)
-              ) 
-            }.getOrElse{ Future(NotFound) }*/
           }else {
             Logger.debug("Downloading repo:%s, Path: %s".format(mavenCentralUrl, path))
             saveToGridFs( Seq(mavenCentralUrl), "/" + path ).flatMap { res =>
@@ -82,6 +49,8 @@ object Application extends Controller with MongoController {
                 Logger.debug("Downloaded repo:%s, Path: %s".format(mavenCentralUrl, path))
                 serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
               }.getOrElse(Future(NotFound))
+            }.recover{
+              case e: java.lang.Exception => Logger.debug("error:%s".format(e.getMessage)); NotFound
             }
           }
         } else {
@@ -91,6 +60,9 @@ object Application extends Controller with MongoController {
     }
   }
 
+  def getMimeType(path: String) = {
+
+  }
 
   /**
    * Returns a future Result that serves the first matched file, or NotFound.
@@ -136,21 +108,24 @@ object Application extends Controller with MongoController {
 
   def saveToGridFs( origins: Seq[String], name : String ): Future[Option[BSONValue]] = {
 
-    val input = origins.foldLeft[Option[(String, Enumerator[Array[Byte]])]](None){
+    val input = origins.foldLeft[Option[(String, String, Enumerator[Array[Byte]])]](None){
       case( None, origin ) => {
         val url = origin + name
         Logger.debug("url:%s".format(url))
 
         ( catching(classOf[java.net.MalformedURLException], classOf[java.io.FileNotFoundException])
-            opt( Enumerator.fromStream( new java.net.URL(url).openStream() ) )
-        ).map( i => (origin, i) )
+            opt{ 
+              val conn = new java.net.URL(url).openConnection()
+              ( conn.getContentType(), Enumerator.fromStream( conn.getInputStream() ) )
+            }
+        ).map{ case(mimeType, enumerator) => (origin, mimeType, enumerator) }
       }
       case( v, _ ) => v
     }
 
-    input.map{ case (origin, i ) =>
+    input.map{ case (origin, mimeType, enumerator ) =>
       Logger.debug("file found in repo:%s".format(origin))
-      val putResult = i.run( gridFS.save(name, None, Option("application/octet-stream")) )
+      val putResult = enumerator.run( gridFS.save(name, None, Option(mimeType/*"application/octet-stream"*/)) )
       putResult.flatMap{ p => p.map{ pr =>
         gridFS.files.update(BSONDocument("_id" -> pr.id), BSONDocument("$set" -> BSONDocument("origin" -> BSONString(origin) ) ) )
         Option(pr.id)
