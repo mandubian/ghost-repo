@@ -21,38 +21,42 @@ object Application extends Controller with MongoController {
   val db = ReactiveMongoPlugin.db
   val gridFS = new GridFS(db, "dependencies")
 
+  val projects = db.collection("projects")
+
+  val repos = Seq( 
+    "http://repo1.maven.org/maven2", 
+    "http://repo.typesafe.com/typesafe/snapshots", 
+    "http://repo.typesafe.com/typesafe/releases"
+  )
+
   def index = Action {
     Ok(views.html.index("Your new application is ready."))
   }
 
   def repo(path: String) = Action { implicit request =>
     Async {
-      Logger.debug("method:%s path: %s".format(request.method, path))
+      Logger.debug("[repo][method:%s] Searching %s".format(request.method, path))
       val fileCursor = gridFS.find(BSONDocument("filename" -> new BSONString("/" + path)))
 
       fileCursor.headOption.flatMap( fileEntry =>
         if(!fileEntry.isDefined){
-          val mavenCentralUrl = "http://repo1.maven.org/maven2"
           if(path(path.length - 1) == '/'){
-            Logger.debug("%s is a dir, just verifying it exists".format(mavenCentralUrl + "/" + path))
-
-            saveToGridFs( Seq(mavenCentralUrl), "/" + path ).flatMap { res =>
+            saveToGridFs( repos, "/" + path ).flatMap { res =>
               res.map { r =>
-                Logger.debug("Downloaded repo:%s, Path: %s".format(mavenCentralUrl, path))
+                Logger.debug("[repo] Downloaded %s from %s".format(path, ""))
                 serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
               }.getOrElse(Future(NotFound))
             }.recover{
               case e: java.lang.Exception => Logger.debug("error:%s".format(e.getMessage)); NotFound
             }
           }else {
-            Logger.debug("Downloading repo:%s, Path: %s".format(mavenCentralUrl, path))
-            saveToGridFs( Seq(mavenCentralUrl), "/" + path ).flatMap { res =>
+            saveToGridFs( repos, "/" + path ).flatMap { res =>
               res.map { r =>
-                Logger.debug("Downloaded repo:%s, Path: %s".format(mavenCentralUrl, path))
+                Logger.debug("[repo] Downloaded %s from %s ".format(path, ""))
                 serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
               }.getOrElse(Future(NotFound))
             }.recover{
-              case e: java.lang.Exception => Logger.debug("error:%s".format(e.getMessage)); NotFound
+              case e: java.lang.Exception => Logger.debug("[repo] error:%s".format(e.getMessage)); NotFound
             }
           }
         } else {
@@ -62,8 +66,53 @@ object Application extends Controller with MongoController {
     }
   }
 
-  def getMimeType(path: String) = {
+  def repoVersion(path: String, project: String, version: String) = Action { implicit request =>
+    Async {
+      Logger.debug("[repo-version][method:%s] Searching path:%s for project:%s version:%s".format(request.method, path, project, version))
+      val fileCursor = gridFS.find(BSONDocument("filename" -> new BSONString("/" + path)))
 
+      fileCursor.headOption.flatMap{ fileEntry => 
+        fileEntry match {
+
+        case None =>
+          saveToGridFs( repos, "/" + path ).flatMap { res =>
+            res.map { id =>
+              Logger.debug("[repo-version] Downloaded %s from %s".format(path, ""))
+
+              // TODO what happens if file is saved but project not created?
+              updateProject(project, version, id.asInstanceOf[BSONObjectID]).flatMap{ _ =>
+                serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
+              }
+            }.getOrElse(Future(NotFound))
+          }.recover{
+            case e: java.lang.Exception => Logger.debug("error:%s".format(e.getMessage)); NotFound
+          }
+
+
+        case Some(fe) =>
+          updateProject(project, version, fe.id.asInstanceOf[BSONObjectID] ).map{ _ =>
+            buildRepoFile(fe)
+          }
+        }  
+      }
+    }
+  }
+
+
+  def updateProject(project: String, version: String, id: BSONObjectID) = {
+    // updates or creates project
+    projects.update(
+      selector = BSONDocument(
+        "project" -> BSONString(project),
+        "version" -> BSONString(version)
+      ),
+      update = BSONDocument(
+        "$addToSet" -> BSONDocument(
+          "deps" -> id
+        )
+      ),
+      upsert = true
+    )
   }
 
   /**
@@ -100,7 +149,7 @@ object Application extends Controller with MongoController {
         header = ResponseHeader(200, Map(
             CONTENT_LENGTH -> ("" + fileEntry.length),
             CONTENT_DISPOSITION -> ("attachment; filename=\"" + realName + "\"; filename*=UTF-8''" + java.net.URLEncoder.encode(realName, "UTF-8").replace("+", "%20")),
-            CONTENT_TYPE -> "application/x-maven-pom+xml"
+            CONTENT_TYPE -> fileEntry.contentType.getOrElse("application/octet-stream")
         )),
         // give Play this file enumerator
         body = Enumerator("")
@@ -127,7 +176,7 @@ object Application extends Controller with MongoController {
 
     input.map{ case (origin, mimeType, enumerator ) =>
       Logger.debug("file found in repo:%s".format(origin))
-      val putResult = enumerator.run( gridFS.save(name, None, Option(mimeType)) )
+      val putResult = enumerator.run( gridFS.save(name, None, Option(mimeType).orElse(Some("application/octet-stream"))) )
       putResult.flatMap{ p => p.map{ pr =>
         FileInfo(name).map{ fi =>
           val newDoc = FileInfo.FileInfoBSONWriter.toBSON(fi) += "origin" -> BSONString(origin)
