@@ -23,10 +23,10 @@ object Application extends Controller with MongoController {
 
   val projects = db.collection("projects")
 
-  val repos = Seq( 
-    "http://repo1.maven.org/maven2", 
-    "http://repo.typesafe.com/typesafe/snapshots", 
-    "http://repo.typesafe.com/typesafe/releases"
+  val repos = Seq(
+    "http://repo.typesafe.com/typesafe/snapshots",
+    "http://repo.typesafe.com/typesafe/releases",
+    "http://repo1.maven.org/maven2"
   )
 
   def index = Action {
@@ -61,7 +61,7 @@ object Application extends Controller with MongoController {
       Logger.debug("[repo-version][method:%s] Searching path:%s for project:%s version:%s".format(request.method, path, project, version))
       val fileCursor = gridFS.find(BSONDocument("filename" -> new BSONString("/" + path)))
 
-      fileCursor.headOption.flatMap{ fileEntry => 
+      fileCursor.headOption.flatMap{ fileEntry =>
         fileEntry match {
 
         case None =>
@@ -83,7 +83,7 @@ object Application extends Controller with MongoController {
           updateProject(project, version, fe.id.asInstanceOf[BSONObjectID] ).map{ _ =>
             buildRepoFile(fe)
           }
-        }  
+        }
       }
     }
   }
@@ -172,10 +172,25 @@ object Application extends Controller with MongoController {
     val putResult = enumerator.run( gridFS.save(name, None, Option(mimeType).orElse(Some("application/octet-stream"))) )
     putResult.flatMap{ p => p.map{ pr =>
       FileInfo(name).map{ fi =>
-        val newDoc = FileInfo.FileInfoBSONWriter.toBSON(fi) += "origin" -> BSONString(origin)
+        val newDoc = FileInfo.FileInfoBSONWriter.toBSON(fi) += "origin" -> BSONString(origin) +=  "last" -> BSONBoolean(true)
         gridFS.files.update(BSONDocument("_id" -> pr.id), BSONDocument("$set" -> newDoc ) )
       }
       Option(pr.id)
     }}
+  }
+
+  def update = Action { implicit request =>
+    Async {
+      Logger.debug("Updating")
+      val fileCursor = gridFS.find(BSONDocument("isSnapshot" -> new BSONBoolean(true), "last" -> new BSONBoolean(true)))
+
+      fileCursor.toList.map({ list =>
+        list.foreach({ fileEntry =>
+            saveFile( repos, fileEntry.filename )
+            gridFS.files.update(BSONDocument("_id" -> fileEntry.id), BSONDocument("$set" -> BSONDocument("last" -> new BSONBoolean(false)) ) )
+        })
+      })
+      Future(Ok(views.html.index("Updating in Progress.")))
+    }
   }
 }

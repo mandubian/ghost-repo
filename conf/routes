@@ -4,12 +4,13 @@
 
 # Home page
 GET     /                           controllers.Application.index
+GET     /update                     controllers.Application.update
 
-HEAD   /repo/version/:project/:version/*path controllers.Application.repoVersion(path, project, version)  
-GET    /repo/version/:project/:version/*path controllers.Application.repoVersion(path, project, version)  
+HEAD   /repo/version/:project/:version/*path controllers.Application.repoVersion(path, project, version)
+GET    /repo/version/:project/:version/*path controllers.Application.repoVersion(path, project, version)
 
-HEAD   /repo/*path                  controllers.Application.repo(path)  
-GET    /repo/*path                  controllers.Application.repo(path)  
+HEAD   /repo/*path                  controllers.Application.repo(path)
+GET    /repo/*path                  controllers.Application.repo(path)
 
 # Map static resources from the /public folder to the /assets URL path
 GET     /assets/*file               controllers.Assets.at(path="/public", file)

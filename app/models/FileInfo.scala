@@ -12,13 +12,14 @@ import reactivemongo.api._
 import reactivemongo.bson._
 import reactivemongo.bson.handlers._
 
-case class FileInfo( groupId: String, artifactId: String, version: Option[String], name: Option[String], isSnapshot: Boolean, isMetadata: Boolean, isFolder : Boolean )
+case class FileInfo( groupId: String, artifactId: String, version: Option[String], name: Option[String],
+    isSnapshot: Boolean = false, isMetadata: Boolean = false, isFolder : Boolean = false )
 
 object FileInfo{
-    val DefaultRegex = """((/[^/]+?)*/)([^/]+)/([^/]+)/([^/]+)""".r
-    val SnapShotRegex = """((/[^/]+?)*/)([^/]+)/([^/]+-SNAPSHOT)/([^/]+)""".r
-    val MetadataRegex = """((/[^/]+?)*/)([^/]+)/(maven.metadata.xml)""".r
-    val FolderRegex = """((/[^/]+?)*/)([^/]+)/""".r
+    val DefaultRegex = """((/[^/]+?)*)/([^/]+)/([^/]+)/([^/]+)""".r
+    val SnapShotRegex = """((/[^/]+?)*)/([^/]+)/([^/]+-SNAPSHOT)/([^/]+)""".r
+    val MetadataRegex = """((/[^/]+?)*)/([^/]+)/(maven.metadata.xml)""".r
+    val FolderRegex = """((/[^/]+?)*)/([^/]+)/""".r
 
     def cleanGroupId( groupId: String ) = {
         groupId.drop(1).replaceAll("/",".")
@@ -26,21 +27,17 @@ object FileInfo{
 
     def apply( str: String ): Option[FileInfo] = {
         str match {
-            case s if( s.matches( FolderRegex.toString ) ) => {
-                val MetadataRegex(groupId, _, artifactId, name) = s
-                Option(FileInfo( cleanGroupId(groupId), artifactId, None, None, false, false, true))
+            case FolderRegex(groupId, _, artifactId, name) => {
+                Option(FileInfo( cleanGroupId(groupId), artifactId, None, None, false, false, true ))
             }
-            case s if( s.matches( MetadataRegex.toString ) ) => {
-                val MetadataRegex(groupId, _, artifactId, name) = s
-                Option(FileInfo( cleanGroupId(groupId), artifactId, None, Option(name), false, true, false))
+            case MetadataRegex(groupId, _, artifactId, name) => {
+                Option(FileInfo( cleanGroupId(groupId), artifactId, None, Option(name), false, true, false ))
             }
-            case s if( s.matches( SnapShotRegex.toString ) ) => {
-                val SnapShotRegex(groupId, _, artifactId, version, name) = s
-                Option(FileInfo( cleanGroupId(groupId), artifactId, Option(version), Option(name), true, false, false))
+            case SnapShotRegex(groupId, _, artifactId, version, name) => {
+                Option(FileInfo( cleanGroupId(groupId), artifactId, Option(version), Option(name), true, false, false ))
             }
-            case s if( s.matches( DefaultRegex.toString ) ) => {
-                val DefaultRegex(groupId, _, artifactId, version, name) = s
-                Option(FileInfo( cleanGroupId(groupId), artifactId, Option(version), Option(name), false, false, false))
+            case DefaultRegex(groupId, _, artifactId, version, name) => {
+                Option(FileInfo( cleanGroupId(groupId), artifactId, Option(version), Option(name) ))
             }
             case _ => None
         }
