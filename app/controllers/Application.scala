@@ -58,8 +58,8 @@ object Application extends Controller with MongoController {
 
   def repoVersion(path: String, project: String, version: String) = Action { implicit request =>
     Async {
-      Logger.debug("[repo-version][method:%s] Searching path:%s for project:%s version:%s".format(request.method, path, project, version))
-      val fileCursor = gridFS.find(BSONDocument("filename" -> new BSONString("/" + path)))
+      //Logger.debug("[repo-version][method:%s] Searching path:%s for project:%s version:%s".format(request.method, path, project, version))
+      val fileCursor = gridFS.find(BSONDocument("filename" -> new BSONString("/" + path), "last" -> BSONBoolean(true) ))
 
       fileCursor.headOption.flatMap{ fileEntry =>
         fileEntry match {
@@ -80,6 +80,7 @@ object Application extends Controller with MongoController {
 
 
         case Some(fe) =>
+          Logger.debug("<b>FILE FOUND</b> : %s.".format("/" + path))
           updateProject(project, version, fe.id.asInstanceOf[BSONObjectID] ).map{ _ =>
             buildRepoFile(fe)
           }
@@ -119,7 +120,7 @@ object Application extends Controller with MongoController {
 
   def buildRepoFile(fileEntry: ReadFileEntry)(implicit request: RequestHeader): Result = {
     val realName = fileEntry.filename.substring(fileEntry.filename.lastIndexOf("/")+1)
-    Logger.debug("realName:%s".format(realName))
+    //Logger.debug("realName:%s".format(realName))
 
     request.method match {
     case "GET" =>
@@ -151,8 +152,6 @@ object Application extends Controller with MongoController {
     val input = origins.foldLeft(Option.empty[(String, String, Enumerator[Array[Byte]])]){
       case(None, origin) => {
         val url = origin + name
-        Logger.debug("url:%s".format(url))
-
         (catching(classOf[java.net.MalformedURLException], classOf[java.io.FileNotFoundException])
             opt{
               val conn = new java.net.URL(url).openConnection()
@@ -164,11 +163,14 @@ object Application extends Controller with MongoController {
     }
     input.map { case (origin, mimeType, enumerator) =>
       saveToGridFs(name, origin, mimeType, enumerator)
-    }.getOrElse(Future(None))
+    }.getOrElse({
+      Logger.debug("<b>FILE NOT FOUND</b> : %s.".format(name))
+      Future(None)
+    })
   }
 
   def saveToGridFs(name: String, origin: String, mimeType: String, enumerator: Enumerator[Array[Byte]]): Future[Option[BSONValue]] = {
-    Logger.debug("file found in repo:%s".format(origin))
+    Logger.debug("<b>DOWNLOADING</b> file found in repo:%s".format(origin))
     val putResult = enumerator.run( gridFS.save(name, None, Option(mimeType).orElse(Some("application/octet-stream"))) )
     putResult.flatMap{ p => p.map{ pr =>
       FileInfo(name).map{ fi =>
@@ -182,15 +184,19 @@ object Application extends Controller with MongoController {
   def update = Action { implicit request =>
     Async {
       Logger.debug("Updating")
-      val fileCursor = gridFS.find(BSONDocument("isSnapshot" -> new BSONBoolean(true), "last" -> new BSONBoolean(true)))
 
-      fileCursor.toList.map({ list =>
-        list.foreach({ fileEntry =>
-            saveFile( repos, fileEntry.filename )
-            gridFS.files.update(BSONDocument("_id" -> fileEntry.id), BSONDocument("$set" -> BSONDocument("last" -> new BSONBoolean(false)) ) )
-        })
-      })
+      dumbUpdate( gridFS.find(BSONDocument("isSnapshot" -> new BSONBoolean(true), "last" -> new BSONBoolean(true))) )
+
       Future(Ok(views.html.index("Updating in Progress.")))
     }
+  }
+
+  private def dumbUpdate( cursor: Cursor[ReadFileEntry] ) = {
+    cursor.toList.map({ list =>
+      list.foreach({ fileEntry =>
+          saveFile( repos, fileEntry.filename )
+          gridFS.files.update(BSONDocument("_id" -> fileEntry.id), BSONDocument("$set" -> BSONDocument("last" -> new BSONBoolean(false)) ) )
+      })
+    })
   }
 }
