@@ -40,24 +40,14 @@ object Application extends Controller with MongoController {
 
       fileCursor.headOption.flatMap( fileEntry =>
         if(!fileEntry.isDefined){
-          if(path(path.length - 1) == '/'){
-            saveToGridFs( repos, "/" + path ).flatMap { res =>
-              res.map { r =>
-                Logger.debug("[repo] Downloaded %s from %s".format(path, ""))
-                serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
-              }.getOrElse(Future(NotFound))
-            }.recover{
-              case e: java.lang.Exception => Logger.debug("error:%s".format(e.getMessage)); NotFound
-            }
-          }else {
-            saveToGridFs( repos, "/" + path ).flatMap { res =>
-              res.map { r =>
-                Logger.debug("[repo] Downloaded %s from %s ".format(path, ""))
-                serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
-              }.getOrElse(Future(NotFound))
-            }.recover{
-              case e: java.lang.Exception => Logger.debug("[repo] error:%s".format(e.getMessage)); NotFound
-            }
+          saveToGridFs( repos, "/" + path ).flatMap { res =>
+            res.map { r =>
+              Logger.debug("[repo] Downloaded %s from %s".format(path, ""))
+              serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
+            }.getOrElse(Future(NotFound))
+          }.recover{ case e: java.lang.Exception =>
+            Logger.debug("[repo] error:%s".format(e.getMessage))
+            NotFound
           }
         } else {
           Future(buildRepoFile(fileEntry.get))
