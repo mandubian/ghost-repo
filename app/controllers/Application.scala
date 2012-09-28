@@ -40,7 +40,7 @@ object Application extends Controller with MongoController {
 
       fileCursor.headOption.flatMap( fileEntry =>
         if(!fileEntry.isDefined){
-          saveToGridFs( repos, "/" + path ).flatMap { res =>
+          saveFile(repos, "/" + path).flatMap { res =>
             res.map { r =>
               Logger.debug("[repo] Downloaded %s from %s".format(path, ""))
               serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
@@ -65,7 +65,7 @@ object Application extends Controller with MongoController {
         fileEntry match {
 
         case None =>
-          saveToGridFs( repos, "/" + path ).flatMap { res =>
+          saveFile(repos, "/" + path).flatMap { res =>
             res.map { id =>
               Logger.debug("[repo-version] Downloaded %s from %s".format(path, ""))
 
@@ -147,33 +147,35 @@ object Application extends Controller with MongoController {
     }
   }
 
-  def saveToGridFs( origins: Seq[String], name : String ): Future[Option[BSONValue]] = {
-
-    val input = origins.foldLeft[Option[(String, String, Enumerator[Array[Byte]])]](None){
-      case( None, origin ) => {
+  def saveFile(origins: Seq[String], name: String): Future[Option[BSONValue]] = {
+    val input = origins.foldLeft(Option.empty[(String, String, Enumerator[Array[Byte]])]){
+      case(None, origin) => {
         val url = origin + name
         Logger.debug("url:%s".format(url))
 
-        ( catching(classOf[java.net.MalformedURLException], classOf[java.io.FileNotFoundException])
+        (catching(classOf[java.net.MalformedURLException], classOf[java.io.FileNotFoundException])
             opt{
               val conn = new java.net.URL(url).openConnection()
               ( conn.getContentType(), Enumerator.fromStream( conn.getInputStream() ) )
             }
         ).map{ case(mimeType, enumerator) => (origin, mimeType, enumerator) }
       }
-      case( v, _ ) => v
+      case(v, _) => v
     }
-
-    input.map{ case (origin, mimeType, enumerator ) =>
-      Logger.debug("file found in repo:%s".format(origin))
-      val putResult = enumerator.run( gridFS.save(name, None, Option(mimeType).orElse(Some("application/octet-stream"))) )
-      putResult.flatMap{ p => p.map{ pr =>
-        FileInfo(name).map{ fi =>
-          val newDoc = FileInfo.FileInfoBSONWriter.toBSON(fi) += "origin" -> BSONString(origin)
-          gridFS.files.update(BSONDocument("_id" -> pr.id), BSONDocument("$set" -> newDoc ) )
-        }
-        Option(pr.id)
-      }}
+    input.map { case (origin, mimeType, enumerator) =>
+      saveToGridFs(name, origin, mimeType, enumerator)
     }.getOrElse(Future(None))
+  }
+
+  def saveToGridFs(name: String, origin: String, mimeType: String, enumerator: Enumerator[Array[Byte]]): Future[Option[BSONValue]] = {
+    Logger.debug("file found in repo:%s".format(origin))
+    val putResult = enumerator.run( gridFS.save(name, None, Option(mimeType).orElse(Some("application/octet-stream"))) )
+    putResult.flatMap{ p => p.map{ pr =>
+      FileInfo(name).map{ fi =>
+        val newDoc = FileInfo.FileInfoBSONWriter.toBSON(fi) += "origin" -> BSONString(origin)
+        gridFS.files.update(BSONDocument("_id" -> pr.id), BSONDocument("$set" -> newDoc ) )
+      }
+      Option(pr.id)
+    }}
   }
 }
