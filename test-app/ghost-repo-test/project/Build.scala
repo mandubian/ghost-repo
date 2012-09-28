@@ -156,8 +156,8 @@ package sbt {
         c.modules.foreach { m =>
           m.artifacts.foreach { a =>
             val mod = m.module
-            val desc = mod.getModuleDescriptor() 
-            log.info("RETRIEVE: module:%s %s %s artifact:%s desc:%s".format(mod.name, mod.organization, mod.revision, a._2, desc))
+            //val desc = mod.getModuleDescriptor() 
+            log.info("RETRIEVE: module:%s %s %s artifact:%s".format(mod.name, mod.organization, mod.revision, a._2/*, desc*/))
           }
         }
         
