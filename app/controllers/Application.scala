@@ -22,6 +22,7 @@ object Application extends Controller with MongoController {
   val gridFS = new GridFS(db, "dependencies")
 
   val projects = db.collection("projects")
+  val notfound = db.collection("notfound")
 
   val repos = Seq(
     "http://repo.typesafe.com/typesafe/snapshots",
@@ -38,21 +39,30 @@ object Application extends Controller with MongoController {
       Logger.debug("[repo][method:%s] Searching %s".format(request.method, path))
       val fileCursor = gridFS.find(BSONDocument("filename" -> new BSONString("/" + path)))
 
-      fileCursor.headOption.flatMap( fileEntry =>
-        if(!fileEntry.isDefined){
-          saveFile(repos, "/" + path).flatMap { res =>
-            res.map { r =>
-              Logger.debug("[repo] Downloaded %s from %s".format(path, ""))
-              serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
-            }.getOrElse(Future(NotFound))
-          }.recover{ case e: java.lang.Exception =>
-            Logger.debug("[repo] error:%s".format(e.getMessage))
-            NotFound
+      fileCursor.headOption.flatMap {
+        case Some(fileEntry) => Future(buildRepoFile(fileEntry))
+        case None => {
+          notfound.find(BSONDocument("path" -> new BSONString(path))).headOption.flatMap {
+            case Some(_) =>
+              Logger.debug("[repo] Ignored %s".format(path))
+              Future(NotFound)
+            case None => {
+              saveFile(repos, "/" + path).flatMap {
+                case Some(r) =>
+                  Logger.debug("[repo] Downloaded %s from %s".format(path, ""))
+                  serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
+                case None =>
+                  Logger.debug("[repo] Ignore %s".format(path))
+                  notfound.insert(BSONDocument("path" -> new BSONString(path)))
+                  Future(NotFound)
+              }.recover{ case e: java.lang.Exception =>
+                Logger.debug("[repo] error:%s".format(e.getMessage))
+                NotFound
+              }
+            }
           }
-        } else {
-          Future(buildRepoFile(fileEntry.get))
         }
-      )
+      }
     }
   }
 
@@ -61,30 +71,34 @@ object Application extends Controller with MongoController {
       //Logger.debug("[repo-version][method:%s] Searching path:%s for project:%s version:%s".format(request.method, path, project, version))
       val fileCursor = gridFS.find(BSONDocument("filename" -> new BSONString("/" + path), "last" -> BSONBoolean(true) ))
 
-      fileCursor.headOption.flatMap{ fileEntry =>
-        fileEntry match {
-
+      fileCursor.headOption.flatMap {
         case None =>
-          saveFile(repos, "/" + path).flatMap { res =>
-            res.map { id =>
-              Logger.debug("[repo-version] Downloaded %s from %s".format(path, ""))
+          notfound.find(BSONDocument("path" -> new BSONString(path))).headOption.flatMap {
+            case Some(_) =>
+              Logger.debug("[repo] Ignored %s".format(path))
+              Future(NotFound)
+            case None =>
+              saveFile(repos, "/" + path).flatMap {
+                case Some(id) =>
+                  Logger.debug("[repo-version] Downloaded %s from %s".format(path, ""))
 
-              // TODO what happens if file is saved but project not created?
-              updateProject(project, version, id.asInstanceOf[BSONObjectID]).flatMap{ _ =>
-                serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
+                  // TODO what happens if file is saved but project not created?
+                  updateProject(project, version, id.asInstanceOf[BSONObjectID]).flatMap{ _ =>
+                    serveRepoFile(gridFS.find(BSONDocument("filename" -> new BSONString("/" + path))))
+                  }
+                case None =>
+                  Logger.debug("[repo] Ignore %s".format(path))
+                  notfound.insert(BSONDocument("path" -> new BSONString(path)))
+                  Future(NotFound)
+              }.recover{
+                case e: java.lang.Exception => Logger.debug("error:%s".format(e.getMessage)); NotFound
               }
-            }.getOrElse(Future(NotFound))
-          }.recover{
-            case e: java.lang.Exception => Logger.debug("error:%s".format(e.getMessage)); NotFound
           }
-
-
         case Some(fe) =>
           Logger.debug("<b>FILE FOUND</b> : %s.".format("/" + path))
           updateProject(project, version, fe.id.asInstanceOf[BSONObjectID] ).map{ _ =>
             buildRepoFile(fe)
           }
-        }
       }
     }
   }
